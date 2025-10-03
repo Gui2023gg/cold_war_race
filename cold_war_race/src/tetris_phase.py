@@ -1,10 +1,11 @@
 import pygame, time, random, sys
+import os
 
 # Configurações locais
 GRID_W, GRID_H = 10, 20
 BLOCK = 28
 PADDING = 20
-FALL_INTERVAL_MS = 800  # mais lento
+FALL_INTERVAL_MS = 600  # mais lento
 MIN_LINES = 5           # meta de linhas para finalizar Tetris
 POPUP_MS = 3000
 TITLE = "Montagem do Foguete"
@@ -188,8 +189,10 @@ def wrap_text(text, font, max_width):
             lines.append(cur)
     return lines
 
-def draw_news_box(screen, font_title, font_text, news_text, x_center, y_top, box_w=520):
-    """Desenha UMA caixa de notícia centralizada em x_center, com topo em y_top."""
+def draw_news_box(screen, font_title, font_text, news_text, x_center, y_top, box_w=520, min_box_h=None):
+    """Desenha UMA caixa de notícia centralizada em x_center, com topo em y_top.
+    Se min_box_h for fornecido, força a altura mínima da caixa para deixá-la mais alta.
+    """
     w, h = screen.get_size()
     padding_x = 12
     inner_w = box_w - padding_x*2
@@ -205,11 +208,13 @@ def draw_news_box(screen, font_title, font_text, news_text, x_center, y_top, box
     rest_h = len(rest_lines) * font_text.get_linesize()
     header_h = 44
     box_h = header_h + title_h + rest_h + 20
+    if min_box_h:
+        box_h = max(box_h, min_box_h)
 
     box_x = x_center - box_w//2
     box_y = y_top
 
-    # sombra + fundo
+    # sombra + fundo (respeita box_h possivelmente maior)
     shadow = pygame.Surface((box_w+6, box_h+6), pygame.SRCALPHA)
     shadow.fill((0,0,0,100))
     screen.blit(shadow, (box_x+3, box_y+3))
@@ -218,7 +223,7 @@ def draw_news_box(screen, font_title, font_text, news_text, x_center, y_top, box
 
     # faixa NEWS
     pygame.draw.rect(screen, (200,50,50), (box_x, box_y, box_w, 36))
-    news_label = font_title.render("NEWS", True, (255,255,255))
+    news_label = font_title.render("Noticias", True, (255,255,255))
     screen.blit(news_label, (box_x + 12, box_y + 6))
 
     # Título (first_line) — tenta destacar ano se houver "—"
@@ -236,6 +241,11 @@ def draw_news_box(screen, font_title, font_text, news_text, x_center, y_top, box
             screen.blit(surf, (box_x + padding_x, y_cursor))
             y_cursor += surf.get_height()
         y_cursor += 6
+
+    # Desenha uma linha preta fina (divisor) separando o título do restante
+    divider_y = y_cursor + 6
+    pygame.draw.rect(screen, (0,0,0), (box_x + padding_x, divider_y, box_w - padding_x*2, 2))
+    y_cursor = divider_y + 10
 
     # Descrição/linhas restantes
     for ln in rest_lines:
@@ -288,14 +298,22 @@ def tetris_phase(screen, x_offset=0, headlines_y=None):
     overlay_start = 0
 
     # Carregar fundos distintos para cada lado (fallback para cor sólida se arquivo ausente)
-    try:
-        bg_left = pygame.image.load("assets/backgrounds/lab_urss.png").convert()
-    except Exception:
-        bg_left = None
-    try:
-        bg_right = pygame.image.load("assets/backgrounds/lab_usa.png").convert()
-    except Exception:
-        bg_right = None
+    # caminho absoluto relativo a este arquivo (src/)
+    assets_bg_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'assets', 'backgrounds'))
+    bg_left = None
+    bg_right = None
+    p_left = os.path.join(assets_bg_dir, "lab_urss.png")
+    p_right = os.path.join(assets_bg_dir, "lab_usa.png")
+    if os.path.exists(p_left):
+        try:
+            bg_left = pygame.image.load(p_left).convert()
+        except Exception:
+            bg_left = None
+    if os.path.exists(p_right):
+        try:
+            bg_right = pygame.image.load(p_right).convert()
+        except Exception:
+            bg_right = None
 
     # redimensiona/cobre cada metade
     if bg_left:
@@ -310,52 +328,55 @@ def tetris_phase(screen, x_offset=0, headlines_y=None):
         now = pygame.time.get_ticks()
         elapsed = int(time.time() - start_time)
 
+        # process events properly (fix: handle inside the loop so player 0 keys work)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                # não chamar pygame.quit() aqui — retorna tempos atuais
                 now_ms = int((time.time() - start_time) * 1000)
                 urss_ms = finish_ms[0] if finish_ms[0] is not None else now_ms
                 eua_ms  = finish_ms[1] if finish_ms[1] is not None else now_ms
                 return {"URSS_ms": urss_ms, "EUA_ms": eua_ms}
+
+            # If overlay is shown, only listen for a key/mouse to continue
             if overlay_shown:
-                # se overlay visível, aceitar clique ou tecla para seguir
-                if event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
-                    # prepara retorno: se outro jogador não terminou, usa tempo atual
+                if event.type == pygame.KEYDOWN or (event.type == pygame.MOUSEBUTTONDOWN and event.button == 1):
                     now_ms = int((time.time() - start_time) * 1000)
                     urss_ms = finish_ms[0] if finish_ms[0] is not None else now_ms
                     eua_ms  = finish_ms[1] if finish_ms[1] is not None else now_ms
                     return {"URSS_ms": urss_ms, "EUA_ms": eua_ms}
+                # ignore other events while overlay is up
                 continue
 
+            # Normal input handling for both players
             if event.type == pygame.KEYDOWN:
                 # Player 0 controls (URSS): A/D move, S drop, W rotate
                 if event.key == pygame.K_a:
                     if valid_position(boards[0], pieces[0], dx=-1):
                         pieces[0]['x'] -= 1
-                if event.key == pygame.K_d:
+                elif event.key == pygame.K_d:
                     if valid_position(boards[0], pieces[0], dx=1):
                         pieces[0]['x'] += 1
-                if event.key == pygame.K_s:
+                elif event.key == pygame.K_s:
                     if valid_position(boards[0], pieces[0], dy=1):
                         pieces[0]['y'] += 1
-                if event.key == pygame.K_w:
+                elif event.key == pygame.K_w:
                     new_rot = (pieces[0]['rot'] + 1) % len(TETROMINOES[pieces[0]['kind']])
                     for shift in (0,-1,1,-2,2):
                         if valid_position(boards[0], pieces[0], dx=shift, rot=new_rot):
                             pieces[0]['rot'] = new_rot
                             pieces[0]['x'] += shift
                             break
+
                 # Player 1 controls (EUA): Arrows
-                if event.key == pygame.K_LEFT:
+                elif event.key == pygame.K_LEFT:
                     if valid_position(boards[1], pieces[1], dx=-1):
                         pieces[1]['x'] -= 1
-                if event.key == pygame.K_RIGHT:
+                elif event.key == pygame.K_RIGHT:
                     if valid_position(boards[1], pieces[1], dx=1):
                         pieces[1]['x'] += 1
-                if event.key == pygame.K_DOWN:
+                elif event.key == pygame.K_DOWN:
                     if valid_position(boards[1], pieces[1], dy=1):
                         pieces[1]['y'] += 1
-                if event.key == pygame.K_UP:
+                elif event.key == pygame.K_UP:
                     new_rot = (pieces[1]['rot'] + 1) % len(TETROMINOES[pieces[1]['kind']])
                     for shift in (0,-1,1,-2,2):
                         if valid_position(boards[1], pieces[1], dx=shift, rot=new_rot):
@@ -386,7 +407,7 @@ def tetris_phase(screen, x_offset=0, headlines_y=None):
             oy = h//2 - overlay_bg.get_height()//2 - 40
             screen.blit(overlay_bg, (ox, oy))
 
-            winner_text = big_font.render(overlay_msg, True, (255,215,0))
+            winner_text = big_font.render(overlay_msg, True, (255,255,255))
             screen.blit(winner_text, (w//2 - winner_text.get_width()//2, oy + 20))
 
             button_rect = pygame.Rect(w//2 - 120, oy + 90, 240, 40)
@@ -474,7 +495,7 @@ def tetris_phase(screen, x_offset=0, headlines_y=None):
         # porque desenhamos as notícias depois)
         pygame.draw.line(screen, (80,80,100), (w//2, 0), (w//2, h), 6)
 
-        title_surf = title_font.render(TITLE, True, (255,215,0))
+        title_surf = title_font.render(TITLE, True, (255,255,255))
         screen.blit(title_surf, (w//2 - title_surf.get_width()//2, 10))
         timer_surf = font.render(f"Tempo: {elapsed}s", True, (255,255,255))
         screen.blit(timer_surf, (w//2 - timer_surf.get_width()//2, 50))
@@ -484,8 +505,8 @@ def tetris_phase(screen, x_offset=0, headlines_y=None):
         draw_piece(screen, pieces[0], (left_x, top_y))
         draw_piece(screen, pieces[1], (right_x, top_y))
 
-        label0 = font.render(f"URSS - Linhas: {lines[0]}/{MIN_LINES}", True, (255,255,255))
-        label1 = font.render(f"EUA  - Linhas: {lines[1]}/{MIN_LINES}", True, (255,255,255))
+        label0 = font.render(f"URSS - Peças Montadas: {lines[0]}/{MIN_LINES}", True, (255,255,255))
+        label1 = font.render(f"EUA  - Peças Montadas: {lines[1]}/{MIN_LINES}", True, (255,255,255))
         screen.blit(label0, (left_x + (GRID_W*BLOCK - label0.get_width())//2, top_y - 30))
         screen.blit(label1, (right_x + (GRID_W*BLOCK - label1.get_width())//2, top_y - 30))
 
@@ -507,9 +528,18 @@ def tetris_phase(screen, x_offset=0, headlines_y=None):
             news_index = (news_index + 1) % len(NEWS)
             last_news_ts = now
 
-        # desenha apenas UMA notícia centralizada (usa headlines_y como topo)
-        box_w = min(w - 200, 360)
-        draw_news_box(screen, title_font, font, NEWS[news_index], w//2, headlines_y, box_w=box_w)
+        # desenha apenas UMA notícia: largura anterior (estreita) e caixa alta,
+        # agora CENTRALIZADA verticalmente na tela
+        box_w = min(w - 270, 320)
+        min_box_h = 300
+        # calcule y de modo que a caixa fique exatamente centralizada verticalmente
+        news_y = h//2 - (min_box_h // 2)
+        draw_news_box(screen, title_font, font, NEWS[news_index], w//2, news_y, box_w=box_w, min_box_h=min_box_h)
+
+        title_surf = title_font.render(TITLE, True, (255,255,255))
+        screen.blit(title_surf, (w//2 - title_surf.get_width()//2, 10))
+        timer_surf = font.render(f"Tempo: {elapsed}s", True, (255,255,255))
+        screen.blit(timer_surf, (w//2 - timer_surf.get_width()//2, 50))
 
         pygame.display.flip()
         clock.tick(FPS)
