@@ -15,7 +15,7 @@ class RocketRace:
                 img = pygame.image.load(path).convert_alpha()
                 img = pygame.transform.scale(img, size)
                 return img
-            except Exception as e:
+            except Exception:
                 surf = pygame.Surface(size, pygame.SRCALPHA)
                 surf.fill(fallback_color)
                 return surf
@@ -44,6 +44,17 @@ class RocketRace:
         ]
         self.asteroids = []
 
+        # Power-up icons (place your icons in assets/sprites with these names)
+        self.icon_map = {
+            "shield": load_image("p_shield.png", (36,36), (200,200,200)),
+            "double": load_image("p_double.png", (36,36), (200,200,200)),
+            "blast":  load_image("p_blast.png", (36,36), (200,200,200)),
+            "slow":   load_image("p_slow.png", (36,36), (200,200,200)),
+        }
+
+        # powerups currently on screen: list of dicts {rect,type,img,vy}
+        self.powerups = []
+
         # Foguetes
         self.rocket1 = pygame.Rect(WIDTH//4 - 25, HEIGHT - 100, 50, 80)
         self.rocket2 = pygame.Rect(3*WIDTH//4 - 25, HEIGHT - 100, 50, 80)
@@ -51,9 +62,18 @@ class RocketRace:
         # Progresso inicial
         self.progress1 = advantage1
         self.progress2 = advantage2
-        self.finish_line = 1500  
+        self.finish_line = 4000
 
-    # === NOVO: Gerador de fundo procedural ===
+        # Power-up state per player
+        self.shield_end = [0, 0]     # ms timestamps
+        self.multiplier = [1.0, 1.0] # progress multiplier (double power uses 2.0)
+        self.slow_end = [0, 0]       # slowdown applied (when slow affects a player)
+
+        # spawn timing
+        self._last_power_spawn = pygame.time.get_ticks()
+        self._next_power_interval = random.randint(5000, 10000)  # ms
+
+    # === NOVO: Gerador de fundo procedural (mantive) ===
     def generate_space_background(self):
         bg = pygame.Surface((WIDTH, HEIGHT))
         bg.fill((5, 5, 20))  # fundo azul-escuro
@@ -111,6 +131,67 @@ class RocketRace:
 
         self.asteroids.append([rect, img])
 
+    # === Power-ups ===
+    def try_spawn_powerup(self):
+        now = pygame.time.get_ticks()
+        if now - self._last_power_spawn < self._next_power_interval:
+            return
+        self._last_power_spawn = now
+        self._next_power_interval = random.randint(5000, 12000)
+
+        ptype = random.choice(["shield", "double", "blast", "slow"])
+        x = random.randint(40, WIDTH - 80)
+        rect = pygame.Rect(x, -40, 36, 36)
+        img = self.icon_map.get(ptype)
+        vy = random.uniform(1.2, 2.2)
+        self.powerups.append({"rect": rect, "type": ptype, "img": img, "vy": vy})
+
+    def apply_powerup(self, owner_idx, ptype):
+        now = pygame.time.get_ticks()
+        if ptype == "shield":
+            self.shield_end[owner_idx] = now + 10000  # 10s
+        elif ptype == "double":
+            self.multiplier[owner_idx] = 2.0
+            # schedule multiplier reset after 5s
+            pygame.time.set_timer(pygame.USEREVENT + 1 + owner_idx, 1, loops=1)  # dummy to ensure pygame has event loop
+            # store end time
+            if owner_idx == 0:
+                self._double_end0 = now + 6000
+            else:
+                self._double_end1 = now + 6000
+        elif ptype == "blast":
+            # reduz o progresso do oponente em 20% do seu progresso atual
+            opp = 1 - owner_idx
+            reduction = int(self.progress1 * 0.2) if opp == 0 else int(self.progress2 * 0.2)
+            if opp == 0:
+                self.progress1 = max(0, self.progress1 - reduction)
+            else:
+                self.progress2 = max(0, self.progress2 - reduction)
+        elif ptype == "slow":
+            opp = 1 - owner_idx
+            # aplica slow ao oponente por 5s (multiplicador 0.5)
+            self.slow_end[opp] = now + 5000
+
+    def powerup_timers_update(self):
+        now = pygame.time.get_ticks()
+        # reset double multipliers if expired (we used attributes set above)
+        if hasattr(self, "_double_end0") and self._double_end0 <= now:
+            self.multiplier[0] = 1.0
+            del self._double_end0
+        if hasattr(self, "_double_end1") and self._double_end1 <= now:
+            self.multiplier[1] = 1.0
+            del self._double_end1
+        # reset shield (we just check end times when needed)
+        # apply slow effect: slow reduces multiplier for the affected player
+        for i in (0,1):
+            if self.slow_end[i] > now:
+                # make sure slow overrides multiplier effect multiplicatively
+                # if double active, effective multiplier will be multiplier*0.5 in run()
+                pass
+            else:
+                # expired
+                self.slow_end[i] = 0
+
     def victory_screen(self, winner):
         font = pygame.font.SysFont("arial", 50, True)
         small_font = pygame.font.SysFont("arial", 30)
@@ -133,7 +214,7 @@ class RocketRace:
             else:
                 text = font.render("EUA venceu a corrida espacial!", True, BLUE)
                 story = [
-                   
+                    
                 ]
 
             self.screen.blit(text, (WIDTH//2 - text.get_width()//2, 200))
@@ -160,12 +241,18 @@ class RocketRace:
         running = True
         frame_count = 0
 
+        # fonts for power-up timers
+        timer_font = pygame.font.SysFont("arial", 16)
+
         while running:
             explosions = []
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     raise SystemExit
+
+            # spawn powerups occasionally
+            self.try_spawn_powerup()
 
             keys = pygame.key.get_pressed()
 
@@ -181,9 +268,14 @@ class RocketRace:
             if keys[pygame.K_LEFT]: self.rocket2.x -= 4
             if keys[pygame.K_RIGHT]: self.rocket2.x += 3
 
-            # Progresso automático
-            self.progress1 += 1
-            self.progress2 += 1
+            # Progresso automático usando multipliers and slow
+            now = pygame.time.get_ticks()
+            # determine effective multipliers (slow halves progress)
+            eff_mult1 = self.multiplier[0] * (0.5 if self.slow_end[0] > now else 1.0)
+            eff_mult2 = self.multiplier[1] * (0.5 if self.slow_end[1] > now else 1.0)
+
+            self.progress1 += 1 * eff_mult1
+            self.progress2 += 1 * eff_mult2
 
             # Limites de tela
             self.rocket1.clamp_ip(pygame.Rect(0, 0, WIDTH//2, HEIGHT))
@@ -201,17 +293,41 @@ class RocketRace:
                 rect.y += 3
             self.asteroids = [a for a in self.asteroids if a[0].y < HEIGHT]
 
+            # Powerups fall
+            for pu in list(self.powerups):
+                pu["rect"].y += int(pu["vy"])
+                # remove if off-screen
+                if pu["rect"].top > HEIGHT:
+                    self.powerups.remove(pu)
+                    continue
+                # collision with rockets
+                if pu["rect"].colliderect(self.rocket1):
+                    self.apply_powerup(0, pu["type"])
+                    if pu in self.powerups: self.powerups.remove(pu)
+                    continue
+                if pu["rect"].colliderect(self.rocket2):
+                    self.apply_powerup(1, pu["type"])
+                    if pu in self.powerups: self.powerups.remove(pu)
+                    continue
+
             # Colisão foguete x asteroide
             asteroids_to_remove = []
             for ast in self.asteroids:
                 rect, img = ast
                 hitbox = self.get_asteroid_hitbox(rect)
                 if self.rocket1.colliderect(hitbox):
-                    self.progress1 -= 60
+                    # if shield active ignore damage
+                    if self.shield_end[0] > now:
+                        pass
+                    else:
+                        self.progress1 -= 60
                     asteroids_to_remove.append(ast)
                     explosions.append((rect.centerx, rect.centery))
                 elif self.rocket2.colliderect(hitbox):
-                    self.progress2 -= 60
+                    if self.shield_end[1] > now:
+                        pass
+                    else:
+                        self.progress2 -= 60
                     asteroids_to_remove.append(ast)
                     explosions.append((rect.centerx, rect.centery))
             for ast in asteroids_to_remove:
@@ -229,6 +345,9 @@ class RocketRace:
             if self.progress2 >= self.finish_line:
                 self.victory_screen("EUA")
                 return "EUA"
+
+            # update timers for powerups
+            self.powerup_timers_update()
 
             # === Desenho ===
             self.screen.blit(self.bg_img, (0, 0))
@@ -254,6 +373,13 @@ class RocketRace:
             self.screen.blit(self.rocket_img1, self.rocket1)
             self.screen.blit(self.rocket_img2, self.rocket2)
 
+            # Powerups: desenha ícones caindo
+            for pu in self.powerups:
+                if pu["img"]:
+                    self.screen.blit(pu["img"], pu["rect"])
+                else:
+                    pygame.draw.rect(self.screen, (255,255,0), pu["rect"])
+
             # Asteroides
             for rect, img in self.asteroids:
                 self.screen.blit(img, rect)
@@ -261,6 +387,46 @@ class RocketRace:
             # Explosões
             for pos in explosions:
                 pygame.draw.circle(self.screen, (255, 80, 0), pos, 40)
+
+            # Draw active power-up icons + timers near each rocket
+            now = pygame.time.get_ticks()
+            # player1 UI (left)
+            ui_x1 = 20
+            ui_y1 = 60
+            if self.shield_end[0] > now:
+                self.screen.blit(self.icon_map["shield"], (ui_x1, ui_y1))
+                t = int((self.shield_end[0] - now) / 1000)
+                txt = timer_font.render(str(t)+"s", True, (255,255,255))
+                self.screen.blit(txt, (ui_x1+40, ui_y1+6))
+            if hasattr(self, "_double_end0") and self._double_end0 > now:
+                self.screen.blit(self.icon_map["double"], (ui_x1, ui_y1+36))
+                t = int((self._double_end0 - now) / 1000)
+                txt = timer_font.render(str(t)+"s", True, (255,255,255))
+                self.screen.blit(txt, (ui_x1+40, ui_y1+36+6))
+            if self.slow_end[0] > now:
+                self.screen.blit(self.icon_map["slow"], (ui_x1, ui_y1+72))
+                t = int((self.slow_end[0] - now) / 1000)
+                txt = timer_font.render(str(t)+"s", True, (255,255,255))
+                self.screen.blit(txt, (ui_x1+40, ui_y1+72+6))
+
+            # player2 UI (right)
+            ui_x2 = WIDTH - 120
+            ui_y2 = 60
+            if self.shield_end[1] > now:
+                self.screen.blit(self.icon_map["shield"], (ui_x2, ui_y2))
+                t = int((self.shield_end[1] - now) / 1000)
+                txt = timer_font.render(str(t)+"s", True, (255,255,255))
+                self.screen.blit(txt, (ui_x2+40, ui_y2+6))
+            if hasattr(self, "_double_end1") and self._double_end1 > now:
+                self.screen.blit(self.icon_map["double"], (ui_x2, ui_y2+36))
+                t = int((self._double_end1 - now) / 1000)
+                txt = timer_font.render(str(t)+"s", True, (255,255,255))
+                self.screen.blit(txt, (ui_x2+40, ui_y2+36+6))
+            if self.slow_end[1] > now:
+                self.screen.blit(self.icon_map["slow"], (ui_x2, ui_y2+72))
+                t = int((self.slow_end[1] - now) / 1000)
+                txt = timer_font.render(str(t)+"s", True, (255,255,255))
+                self.screen.blit(txt, (ui_x2+40, ui_y2+72+6))
 
             pygame.display.flip()
             self.clock.tick(FPS)

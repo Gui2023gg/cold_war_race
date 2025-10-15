@@ -49,42 +49,86 @@ def show_text_screen(screen, title_text, body_text):
     title_font = pygame.font.SysFont("Arial", 36, bold=True)
     body_font = pygame.font.SysFont("Arial", 20)
     btn_font = pygame.font.SysFont("Arial", 20, bold=True)
-    back_rect = pygame.Rect(20, HEIGHT-60, 120, 40)
+    # back button moved para o topo
+    back_rect = pygame.Rect(20, 20, 120, 36)
 
     # prepare wrapped lines
     max_w = min(WIDTH - 120, 900)
     lines = wrap_text(body_text, body_font, max_w)
+    line_h = body_font.get_linesize()
+
+    # área visível para o texto
+    text_x = WIDTH//2 - max_w//2
+    text_top = 110
+    text_bottom = HEIGHT - 40
+    visible_h = text_bottom - text_top
+
+    total_h = len(lines) * line_h
+    max_scroll = max(0, total_h - visible_h)
+    scroll_y = 0
+    scroll_step = int(line_h * 3)  # passo ao usar setas / wheel
     running = True
     while running:
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
-            if ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
-                pygame.quit()
-                sys.exit()
+            if ev.type == pygame.KEYDOWN:
+                if ev.key == pygame.K_ESCAPE:
+                    pygame.quit()
+                    sys.exit()
+                if ev.key in (pygame.K_UP,):
+                    scroll_y = max(0, scroll_y - scroll_step)
+                if ev.key in (pygame.K_DOWN,):
+                    scroll_y = min(max_scroll, scroll_y + scroll_step)
+                if ev.key == pygame.K_PAGEUP:
+                    scroll_y = max(0, scroll_y - visible_h)
+                if ev.key == pygame.K_PAGEDOWN:
+                    scroll_y = min(max_scroll, scroll_y + visible_h)
             if ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
                 if back_rect.collidepoint(ev.pos):
                     return  # volta ao menu
+            if ev.type == pygame.MOUSEWHEEL:
+                # ev.y é positivo quando roda para cima
+                scroll_y = max(0, min(max_scroll, scroll_y - ev.y * int(line_h * 3)))
 
         mouse_pos = pygame.mouse.get_pos()
         screen.fill((10, 14, 30))
-        # title
-        title_s = title_font.render(title_text, True, (255, 215, 0))
-        screen.blit(title_s, (WIDTH//2 - title_s.get_width()//2, 40))
-        # body
-        x = WIDTH//2 - max_w//2
-        y = 110
-        line_h = body_font.get_linesize()
+        # título — cor branca se for História ou Sobre (mantém amarelo para demais)
+        title_color = (255,255,255) if ("hist" in title_text.lower() or "sobre" in title_text.lower()) else (255, 215, 0)
+        title_s = title_font.render(title_text, True, title_color)
+        screen.blit(title_s, (WIDTH//2 - title_s.get_width()//2, 64))
+
+        # body (aplica scroll)
+        y = text_top - scroll_y
+        # apenas desenha linhas visíveis para performance
         for line in lines:
-            line_s = body_font.render(line, True, (230,230,230))
-            screen.blit(line_s, (x, y))
+            line_y = y
+            if line_y + line_h >= text_top and line_y <= text_bottom:
+                line_s = body_font.render(line, True, (230,230,230))
+                screen.blit(line_s, (text_x, line_y))
             y += line_h
 
-        # back button
+        
+
+        # back button (no topo)
         pygame.draw.rect(screen, (60,60,70) if back_rect.collidepoint(mouse_pos) else (40,40,50), back_rect, border_radius=6)
         back_s = btn_font.render("Voltar", True, (240,240,240))
         screen.blit(back_s, (back_rect.x + (back_rect.width-back_s.get_width())//2, back_rect.y + (back_rect.height-back_s.get_height())//2))
+
+        # barra de rolagem simples à direita da área de texto
+        if total_h > visible_h:
+            track_w = 10
+            track_x = text_x + max_w + 12
+            track_rect = pygame.Rect(track_x, text_top, track_w, visible_h)
+            pygame.draw.rect(screen, (50,50,60), track_rect, border_radius=6)
+            thumb_h = max(24, int(visible_h * visible_h / total_h))
+            if max_scroll > 0:
+                thumb_y = text_top + int(scroll_y * (visible_h - thumb_h) / max_scroll)
+            else:
+                thumb_y = text_top
+            thumb_rect = pygame.Rect(track_x, thumb_y, track_w, thumb_h)
+            pygame.draw.rect(screen, (140,140,150), thumb_rect, border_radius=6)
 
         pygame.display.flip()
         clock.tick(60)
@@ -321,8 +365,29 @@ def show_menu(screen, cover_image=None):
                     return  # começa os minigames
                 if history_rect.collidepoint(ev.pos):
                     show_text_screen(screen, "História", (
+                        "A Corrida Espacial foi um dos capítulos mais marcantes da Guerra Fria, um período em que os Estados Unidos e a União Soviética "
+                        "disputavam não apenas poder político e militar, mas também a supremacia científica e tecnológica.\n\n Tudo começou em 4 de"
+                        "de 1957, quando o mundo parou para ouvir o som de um pequeno satélite soviético: o Sputnik 1. Com ele, a URSS se tornou o"
+                        "primeiro país a colocar um objeto feito pelo homem em órbita da Terra. O feito gerou admiração e medo, e foi o estopim de"
+                        "uma competição sem precedentes.\n\n"
+                        "Pouco depois, os soviéticos enviaram Laika, a cadela que se tornou o primeiro ser vivo a orbitar o planeta. O mundo assistia,"
+                        "dividido entre o espanto e a tensão, enquanto os Estados Unidos corriam para responder. Em 1958, os norte-americanos lançaram"
+                        "o Explorer 1, seu primeiro satélite, e criaram a NASA — a agência espacial que se tornaria símbolo da exploração do espaço.\n\n"
+                        "Nos anos seguintes, os soviéticos mantiveram a liderança. Em 1961, Yuri Gagarin tornou-se o primeiro ser humano a viajar pelo"
+                        "espaço e orbitar a Terra, consolidando o orgulho soviético e abalando o moral americano.\n Em resposta, o presidente John F. Kennedy "
+                        "lançou um desafio histórico: “Antes que esta década termine, colocaremos um homem na Lua e o traremos de volta em segurança.”\n Essa "
+                        "promessa acendeu a rivalidade ao máximo — o espaço virou o campo de batalha simbólico da Guerra Fria.\n\n" 
+                        "Enquanto os soviéticos realizavam feitos notáveis, como a primeira caminhada espacial de Aleksei Leonov em 1965, a NASA "
+                        "bilhões em uma série de missões cada vez mais ousadas.\n Em 1968, a missão Apollo 8 orbitou a Lua e nos presenteou com a icônica "
+                        "foto “Earthrise”, a Terra vista do espaço — um lembrete da fragilidade do nosso planeta.\n\n"
+                        "Finalmente, em 20 de julho de 1969, o mundo parou mais uma vez. A missão Apollo 11 pousou na Lua, e Neil Armstrong deu seu "
+                        "“pequeno passo para o homem, mas um salto gigantesco para a humanidade.”\n Os Estados Unidos haviam vencido a corrida, mas o "
+                        "verdadeiro triunfo foi coletivo: a humanidade mostrou que podia ir além de seus limites.\n\n"
+                        "A Corrida Espacial foi mais do que uma disputa tecnológica. Foi uma jornada de sonhos, medos e ambições — uma era em que"
+                        "olhar para o céu era olhar para o futuro."
                         "Durante a Guerra Fria, Estados Unidos e União Soviética disputaram a supremacia espacial.\n\n"
-                        "Nesta simulação, você participa da montagem do foguete (mini-game estilo Tetris) e, em seguida, da corrida espacial para a Lua."
+
+                        
                     ))
                 if about_rect.collidepoint(ev.pos):
                     show_text_screen(screen, "Sobre", (
@@ -449,7 +514,7 @@ def main():
     elif adv_eua > adv_urss:
         end_text = "EUA obtém vantagem pela montagem do foguete. A corrida começa com eles em vantagem."
     else:
-        end_text = "Empate na montagem — a corrida começa equilibrada."
+        end_text = "Empate na montagem — a corrida começa equilibrada. "
 
     # mostra uma única cena (imagem do foguete + texto do narrador)
     _show_dialogue_generic(screen, [("Narrador", end_text, foguete_img)], bg_image=None, typing_speed_chars_per_sec=140)
