@@ -31,16 +31,23 @@ COLORS = {
 
 # Notícias (manchetes) - a lista que você pediu (mantive exatamente)
 NEWS = [
-    "1957 - URSS lança o Sputnik 1:\n primeiro satélite artificial em órbita, provocando onda de orgulho e temor mundial.",
-    "1957 - Laika embarca no Sputnik 2:\n cadela pioneira torna-se o primeiro ser vivo a orbitar a Terra.",
-    "1958 - Explorer 1 detecta cinturões de Van Allen:\n Congresso cria a NASA em resposta à corrida espacial.",
-    "1961 - Yuri Gagarin faz história:\n primeiro humano a orbitar o planeta em missão soviética vitoriosa.",
-    "1961 - Kennedy promete:\n 'Vamos pôr um homem na Lua antes de 1969', novo objetivo americano na corrida lunar.",
-    "1965 - Aleksei Leonov realiza a primeira\n caminhada espacial, demonstrando a capacidade de operações fora da cabine.",
-    "1968 - Apollo 8 orbita a Lua e nos dá Earthrise:\n imagem icônica que muda a visão do planeta."
+    "1957 - URSS lança o Sputnik 1:\nO primeiro satélite artificial a orbitar a Terra é lançado pela União Soviética. O pequeno globo metálico, com seus sinais de rádio, marca o início da era espacial. O mundo assiste, dividido entre fascínio científico e medo militar.",
+    
+    "1957 - Laika embarca no Sputnik 2:\nPouco após o Sputnik 1, a cadela Laika é enviada ao espaço. Tornando-se o primeiro ser vivo a orbitar a Terra, Laika emociona o mundo e desperta debates éticos sobre os limites da ciência. Seu sacrifício simboliza o preço da descoberta.",
+    
+    "1958 - Explorer 1 detecta os cinturões de Van Allen:\nOs Estados Unidos respondem com seu primeiro satélite. O Explorer 1 simboliza a reação americana e revela os cinturões de radiação da Terra. No mesmo ano, o Congresso cria a NASA, marcando a entrada oficial dos EUA.",
+    
+    "1961 - Yuri Gagarin faz história:\nA URSS surpreende o mundo novamente. Yuri Gagarin, a bordo da Vostok 1, torna-se o primeiro humano a orbitar o planeta. Ao dizer 'A Terra é azul', Gagarin entra para a história como símbolo máximo de coragem.",
+    
+    "1961 - Kennedy promete:\nEm resposta à façanha soviética, o presidente John F. Kennedy declara: 'Antes do fim desta década, colocaremos um homem na Lua e o traremos de volta.' O desafio inspira uma geração e transforma a corrida.",
+    
+    "1965 - Aleksei Leonov realiza a primeira caminhada espacial:\nEm um ato ousado, o cosmonauta soviético Leonov deixa sua cápsula e flutua no vácuo. Por doze minutos, ele desafia o desconhecido. O feito demonstra o avanço soviético e aproxima a humanidade do sonho de caminhar em outros mundos.",
+    
+    "1968 - Apollo 8 orbita a Lua e nos dá Earthrise:\nPela primeira vez, humanos deixam a órbita terrestre e viajam ao redor da Lua. A missão Apollo 8 marca um salto monumental. A imagem 'Earthrise', mostrando a Terra sobre o horizonte lunar."
 ]
+
 # duração (ms) que cada manchete fica visível
-NEWS_DURATION_MS = 3000
+NEWS_DURATION_MS = 5000
 
 # --- Funções de Tetris (sem alterações de lógica) ---
 def new_board():
@@ -201,6 +208,7 @@ def draw_news_box(screen, font_title, font_text, news_text, x_center, y_top, box
     first_line = parts[0] if parts else ""
     rest_text = "\n".join(parts[1:]) if len(parts) > 1 else ""
 
+    # Sempre faz wrap do título e do restante para evitar overflow
     title_lines = wrap_text(first_line, font_title, inner_w)
     rest_lines = wrap_text(rest_text, font_text, inner_w) if rest_text else []
 
@@ -226,21 +234,13 @@ def draw_news_box(screen, font_title, font_text, news_text, x_center, y_top, box
     news_label = font_title.render("Noticias", True, (255,255,255))
     screen.blit(news_label, (box_x + 12, box_y + 6))
 
-    # Título (first_line) — tenta destacar ano se houver "—"
+    # Título (first_line) — sempre renderizado por linhas já quebradas
     y_cursor = box_y + header_h
-    if '—' in first_line:
-        parts = first_line.split('—', 1)
-        year = parts[0].strip()
-        title = parts[1].strip()
-        year_title_surf = font_title.render(f"{year} — {title}", True, (10,10,10))
-        screen.blit(year_title_surf, (box_x + padding_x, y_cursor))
-        y_cursor += year_title_surf.get_height() + 6
-    else:
-        for tl in title_lines:
-            surf = font_title.render(tl, True, (10,10,10))
-            screen.blit(surf, (box_x + padding_x, y_cursor))
-            y_cursor += surf.get_height()
-        y_cursor += 6
+    for tl in title_lines:
+        surf = font_title.render(tl, True, (10,10,10))
+        screen.blit(surf, (box_x + padding_x, y_cursor))
+        y_cursor += surf.get_height()
+    y_cursor += 6
 
     # Desenha uma linha preta fina (divisor) separando o título do restante
     divider_y = y_cursor + 6
@@ -530,8 +530,8 @@ def tetris_phase(screen, x_offset=0, headlines_y=None):
 
         # desenha apenas UMA notícia: largura anterior (estreita) e caixa alta,
         # agora CENTRALIZADA verticalmente na tela
-        box_w = min(w - 270, 320)
-        min_box_h = 300
+        box_w = min(w - 350, 330)
+        min_box_h = 350
         # calcule y de modo que a caixa fique exatamente centralizada verticalmente
         news_y = h//2 - (min_box_h // 2)
         draw_news_box(screen, title_font, font, NEWS[news_index], w//2, news_y, box_w=box_w, min_box_h=min_box_h)

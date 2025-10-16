@@ -38,18 +38,42 @@ class RocketRace:
 
         # Asteroides (3 variantes)
         self.asteroid_imgs = [
-            load_image("asteroid4.png", (70, 70), (120, 100, 80)),
+            load_image("asteroid4.png", (60, 80), (120, 100, 80)),
             load_image("asteroid5.png", (70, 70), (100, 90, 100)),
             load_image("asteroid6.png", (60, 60), (140, 120, 100)),
         ]
         self.asteroids = []
 
+        # Obstáculos únicos (aparecem no máximo uma vez cada)
+        # nomes das imagens esperadas em assets/sprites (ajuste se necessário)
+        unique_specs = {
+            "sputnik":   ("sputnik.png",   (80, 70)),
+            "laika":     ("laika.png",     (100, 80)),
+            "explorer1": ("explorer1.png", (66, 96)),
+            "astronaut": ("astronaut.png", (80, 70)),
+            "apollo8":   ("apollo8.png",   (100, 80)),
+            "apollo11":  ("apollo11.png",  (90, 70)),
+        }
+        self.unique_imgs = {}
+        for key, (fname, size) in unique_specs.items():
+            self.unique_imgs[key] = load_image(fname, size, (150, 150, 150))
+        # conta quantas vezes cada único já apareceu e limite de reaparecimentos
+        self.unique_spawn_counts = {k: 0 for k in self.unique_imgs}
+        # ajuste aqui quantas vezes cada obstáculo pode reaparecer durante a corrida
+        self.unique_max_spawns = {k: 3 for k in self.unique_imgs}  # padrão: até 3 aparições
+
+        # Timer para forçar spawn de um único a cada X ms
+        self._last_unique_spawn = pygame.time.get_ticks()
+        self._unique_spawn_interval = 2000  # 2000 ms = 2 segundos
+
         # Power-up icons (place your icons in assets/sprites with these names)
+        # tamanho dos ícones aumentado para quase o tamanho dos foguetes (rocket ~50x80)
+        self.power_icon_size = (110, 110)  # (width, height)
         self.icon_map = {
-            "shield": load_image("p_shield.png", (36,36), (200,200,200)),
-            "double": load_image("p_double.png", (36,36), (200,200,200)),
-            "blast":  load_image("p_blast.png", (36,36), (200,200,200)),
-            "slow":   load_image("p_slow.png", (36,36), (200,200,200)),
+            "shield": load_image("p_shield.png", self.power_icon_size, (200,200,200)),
+            "double": load_image("p_double.png", self.power_icon_size, (200,200,200)),
+            "blast":  load_image("p_blast.png", self.power_icon_size, (200,200,200)),
+            "slow":   load_image("p_slow.png", self.power_icon_size, (200,200,200)),
         }
 
         # powerups currently on screen: list of dicts {rect,type,img,vy}
@@ -113,23 +137,37 @@ class RocketRace:
         return bg
 
     def spawn_asteroid(self):
+        # Mantém o spawn normal de asteroides (sem lógica de únicos aqui)
         side = random.choice(["left", "right"])
         if side == "left":
             x = random.randint(0, WIDTH//2 - 60)
         else:
             x = random.randint(WIDTH//2, WIDTH - 60)
         y = random.randint(-300, -60)
-
         rect = pygame.Rect(x, y, 60, 60)
-
         # Escolhe a variante com pesos para variar mais
-        img = random.choices(
-            self.asteroid_imgs,
-            weights=[3, 2, 1],  # asteroid4 mais comum, asteroid6 mais raro
-            k=1
-        )[0]
-
+        img = random.choices(self.asteroid_imgs, weights=[3, 2, 1], k=1)[0]
         self.asteroids.append([rect, img])
+
+    def try_spawn_unique(self):
+        """Força spawnar um único (sputnik/laika/...) a cada self._unique_spawn_interval ms,
+        até que cada tipo alcance unique_max_spawns."""
+        now = pygame.time.get_ticks()
+        if now - self._last_unique_spawn < self._unique_spawn_interval:
+            return
+        self._last_unique_spawn = now
+        remaining = [k for k, c in self.unique_spawn_counts.items() if c < self.unique_max_spawns.get(k, 0)]
+        if not remaining:
+            return
+        chosen = random.choice(remaining)
+        img = self.unique_imgs[chosen]
+        w, h = img.get_size()
+        # posa em X aleatório dentro da tela
+        x = random.randint(0, max(0, WIDTH - w))
+        y = random.randint(-300, -60)
+        rect = pygame.Rect(x, y, w, h)
+        self.asteroids.append([rect, img])
+        self.unique_spawn_counts[chosen] += 1
 
     # === Power-ups ===
     def try_spawn_powerup(self):
@@ -138,10 +176,11 @@ class RocketRace:
             return
         self._last_power_spawn = now
         self._next_power_interval = random.randint(5000, 12000)
-
+ 
         ptype = random.choice(["shield", "double", "blast", "slow"])
         x = random.randint(40, WIDTH - 80)
-        rect = pygame.Rect(x, -40, 36, 36)
+        # spawn acima da tela considerando a altura do ícone
+        rect = pygame.Rect(x, -self.power_icon_size[1] - 10, self.power_icon_size[0], self.power_icon_size[1])
         img = self.icon_map.get(ptype)
         vy = random.uniform(1.2, 2.2)
         self.powerups.append({"rect": rect, "type": ptype, "img": img, "vy": vy})
@@ -253,6 +292,8 @@ class RocketRace:
 
             # spawn powerups occasionally
             self.try_spawn_powerup()
+            # spawn únicos periodicamente (cada 2s definido em __init__)
+            self.try_spawn_unique()
 
             keys = pygame.key.get_pressed()
 
@@ -393,21 +434,24 @@ class RocketRace:
             # player1 UI (left)
             ui_x1 = 20
             ui_y1 = 60
+            iw, ih = self.power_icon_size
+            text_x_offset = iw + 6
+            line_spacing = ih + 6
             if self.shield_end[0] > now:
                 self.screen.blit(self.icon_map["shield"], (ui_x1, ui_y1))
                 t = int((self.shield_end[0] - now) / 1000)
                 txt = timer_font.render(str(t)+"s", True, (255,255,255))
-                self.screen.blit(txt, (ui_x1+40, ui_y1+6))
+                self.screen.blit(txt, (ui_x1 + text_x_offset, ui_y1 + ih//2 - 8))
             if hasattr(self, "_double_end0") and self._double_end0 > now:
-                self.screen.blit(self.icon_map["double"], (ui_x1, ui_y1+36))
+                self.screen.blit(self.icon_map["double"], (ui_x1, ui_y1 + line_spacing))
                 t = int((self._double_end0 - now) / 1000)
                 txt = timer_font.render(str(t)+"s", True, (255,255,255))
-                self.screen.blit(txt, (ui_x1+40, ui_y1+36+6))
+                self.screen.blit(txt, (ui_x1 + text_x_offset, ui_y1 + line_spacing + ih//2 - 8))
             if self.slow_end[0] > now:
-                self.screen.blit(self.icon_map["slow"], (ui_x1, ui_y1+72))
+                self.screen.blit(self.icon_map["slow"], (ui_x1, ui_y1 + 2 * line_spacing))
                 t = int((self.slow_end[0] - now) / 1000)
                 txt = timer_font.render(str(t)+"s", True, (255,255,255))
-                self.screen.blit(txt, (ui_x1+40, ui_y1+72+6))
+                self.screen.blit(txt, (ui_x1 + text_x_offset, ui_y1 + 2 * line_spacing + ih//2 - 8))
 
             # player2 UI (right)
             ui_x2 = WIDTH - 120
@@ -416,17 +460,17 @@ class RocketRace:
                 self.screen.blit(self.icon_map["shield"], (ui_x2, ui_y2))
                 t = int((self.shield_end[1] - now) / 1000)
                 txt = timer_font.render(str(t)+"s", True, (255,255,255))
-                self.screen.blit(txt, (ui_x2+40, ui_y2+6))
+                self.screen.blit(txt, (ui_x2 + text_x_offset, ui_y2 + ih//2 - 8))
             if hasattr(self, "_double_end1") and self._double_end1 > now:
-                self.screen.blit(self.icon_map["double"], (ui_x2, ui_y2+36))
+                self.screen.blit(self.icon_map["double"], (ui_x2, ui_y2 + line_spacing))
                 t = int((self._double_end1 - now) / 1000)
                 txt = timer_font.render(str(t)+"s", True, (255,255,255))
-                self.screen.blit(txt, (ui_x2+40, ui_y2+36+6))
+                self.screen.blit(txt, (ui_x2 + text_x_offset, ui_y2 + line_spacing + ih//2 - 8))
             if self.slow_end[1] > now:
-                self.screen.blit(self.icon_map["slow"], (ui_x2, ui_y2+72))
+                self.screen.blit(self.icon_map["slow"], (ui_x2, ui_y2 + 2 * line_spacing))
                 t = int((self.slow_end[1] - now) / 1000)
                 txt = timer_font.render(str(t)+"s", True, (255,255,255))
-                self.screen.blit(txt, (ui_x2+40, ui_y2+72+6))
+                self.screen.blit(txt, (ui_x2 + text_x_offset, ui_y2 + 2 * line_spacing + ih//2 - 8))
 
             pygame.display.flip()
             self.clock.tick(FPS)
