@@ -391,8 +391,9 @@ def show_menu(screen, cover_image=None):
                     ))
                 if about_rect.collidepoint(ev.pos):
                     show_text_screen(screen, "Sobre", (
-                        "Cold War Race - projeto educativo que mistura puzzle e corrida.\n\n"
-                        "Desenvolvido como exemplo didático. Ajuste recursos e assets em assets/."
+                        "Cold War Race - projeto educativo que mistura puzzles e a história da corrida espacial.\n\n"
+                        "Desenvolvido como exemplo didático.\n\n"
+                        "Por: Pedro, Guilherme, Matheus, Lucas P., Emanuel P., Gabriel Y.,"
                     ))
 
         mouse_pos = pygame.mouse.get_pos()
@@ -531,4 +532,5 @@ if __name__ == "__main__":
     try:
         main()
     except SystemExit:
+
         pass
